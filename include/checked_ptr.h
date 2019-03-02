@@ -46,14 +46,14 @@ bool addr_is_readable( void* mem ) {
 template < typename T >
 struct checkable_obj {
 
-    size_t validator_field_;
+    uint32_t validator_field_;
 
     T payload_;
 
 #ifndef CHECKED_PTR_USE_TYPEID_HASH
 
     template < typename... Args >
-    checkable_obj( size_t&& typename_hash, Args&&... args )
+    checkable_obj( uint32_t&& typename_hash, Args&&... args )
         : validator_field_( typename_hash )
         , payload_( std::forward< Args >( args )... ) {}
 
@@ -73,6 +73,8 @@ struct checkable_obj {
     ~checkable_obj() { validator_field_ = 0; }
 };
 
+// #define CHECKED_PTR_USE_TYPEID_HASH
+
 template < typename T >
 class checked_ptr {
   public:
@@ -81,22 +83,30 @@ class checked_ptr {
     checked_ptr( void* mem )
         : memory_region_( reinterpret_cast< checkable_obj< T >* >( mem ) ) {}
 
+    checked_ptr( long long mem )
+        : memory_region_( reinterpret_cast< checkable_obj< T >* >( mem ) ) {}
+
 #ifndef CHECKED_PTR_USE_TYPEID_HASH
-
-    bool check( size_t typename_hash ) const noexcept {
-        return addr_is_readable( const_cast< void* >(
-                   reinterpret_cast< const void* >( memory_region_ ) ) ) &&
-               memory_region_->validator_field_ == typename_hash;
+    bool check( uint32_t typename_hash ) const noexcept {
+        return readable() && check_type( typename_hash );
     }
-
 #else
+    bool check() const noexcept { return readable() && check_type(); }
+#endif
 
-    bool check() const noexcept {
-        return addr_is_readable( const_cast< void* >(
-                   reinterpret_cast< const void* >( memory_region_ ) ) ) &&
-               memory_region_->validator_field_ == typeid( T ).hash_code();
+    bool readable() const {
+        return addr_is_readable(
+            const_cast< void* >( reinterpret_cast< const void* >( memory_region_ ) ) );
     }
 
+#ifndef CHECKED_PTR_USE_TYPEID_HASH
+    bool check_type( uint32_t typename_hash ) const {
+        return memory_region_->validator_field_ == typename_hash;
+    }
+#else
+    bool check_type() const {
+        return memory_region_->validator_field_ == typeid( T ).hash_code();
+    }
 #endif
 
     T& operator*() { return ( *( *memory_region_ ) ); }
@@ -126,7 +136,7 @@ checked_ptr< T > make_checked( void* mem ) {
 
 #endif
 
-#define gen_checked_ptr( type, name, mem )                                               \
+#define GEN_CHECKED_PTR( type, name, mem )                                               \
     auto name = checked_ptr< type >( mem );                                              \
-    if ( !name.valid( CONSTEXPR_TYPENAME_HASH( type ) ) )                                \
+    if ( !name.check( CONSTEXPR_TYPENAME_HASH( type ) ) )                                \
         throw std::runtime_error( "invalid pointer" );
